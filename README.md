@@ -14,16 +14,16 @@ A portfolio project simulating a real-world payment lifecycle API — accepting 
 | Framework | Spring Boot 3.5.11 |
 | Persistence | Spring Data JPA / Hibernate 6 |
 | Database (local) | H2 (in-memory) |
-| Database (production) | PostgreSQL (planned) |
-| Messaging | AWS SQS (planned) |
-| Cloud | AWS — ECS, RDS, SQS (planned) |
+| Database (production) | PostgreSQL — AWS RDS |
+| Messaging | AWS SQS |
+| Cloud | AWS — ECS Fargate, RDS, SQS, ECR, ALB |
+| Containerization | Docker |
 | Build | Maven |
 | Testing | JUnit 5, Mockito, AssertJ, Testcontainers |
 
 ---
 
 ## Architecture
-
 ```
 HTTP Request
      │
@@ -35,17 +35,29 @@ PaymentService             (Business logic — validation, mapping)
      │
      ├──▶ PaymentRepository    (Spring Data JPA — persistence)
      │
-     └──▶ SqsPublisher         (Messaging — event publishing) [planned]
+     └──▶ SqsPublisher         (Messaging — event publishing)
                │
                ▼
           AWS SQS Queue
                │
                ▼
-          PaymentEventConsumer  (Async processing) [planned]
+          PaymentEventConsumer  (Async processing)
                │
                ▼
           PaymentRepository     (Status update → PROCESSING)
 ```
+
+---
+
+## AWS Infrastructure
+
+| Component | Service | Details |
+|---|---|---|
+| Container Registry | Amazon ECR | Stores Docker image |
+| Container Host | Amazon ECS Fargate | Runs containerized Spring Boot app |
+| Database | Amazon RDS PostgreSQL | Production persistence |
+| Messaging | Amazon SQS | Async payment event queue |
+| Load Balancer | Application Load Balancer | Public-facing HTTP endpoint |
 
 ---
 
@@ -60,7 +72,6 @@ PaymentService             (Business logic — validation, mapping)
 | `PATCH` | `/api/v1/payments/{id}/status` | Update payment status |
 
 ### Create Payment — Example Request
-
 ```bash
 curl -X POST http://localhost:8080/api/v1/payments \
   -H "Content-Type: application/json" \
@@ -74,7 +85,6 @@ curl -X POST http://localhost:8080/api/v1/payments \
 ```
 
 ### Example Response
-
 ```json
 {
   "id": "f1f08280-bd82-4951-8076-8ae7969c4b95",
@@ -84,8 +94,8 @@ curl -X POST http://localhost:8080/api/v1/payments \
   "senderId": "user-001",
   "recipientId": "user-002",
   "description": "Payment for services",
-  "createdAt": "2026-03-11T15:24:17.320167",
-  "updatedAt": "2026-03-11T15:24:17.320167"
+  "createdAt": "2026-03-12T15:41:43.974837",
+  "updatedAt": "2026-03-12T15:41:43.974837"
 }
 ```
 
@@ -94,14 +104,13 @@ curl -X POST http://localhost:8080/api/v1/payments \
 | Status | Description |
 |---|---|
 | `PENDING` | Payment created, awaiting processing |
-| `PROCESSING` | Event consumed, processing in progress |
+| `PROCESSING` | SQS event consumed, processing in progress |
 | `COMPLETED` | Payment successfully processed |
 | `FAILED` | Payment processing failed |
 
 ---
 
 ## Project Structure
-
 ```
 src/main/java/com/bridgepay/payment_processor/
 ├── controller/          # REST endpoints
@@ -109,10 +118,15 @@ src/main/java/com/bridgepay/payment_processor/
 ├── repository/          # Spring Data JPA repositories
 ├── model/
 │   ├── entity/          # JPA entities and enums
-│   └── dto/             # Request/response DTOs
-├── messaging/           # SQS producer and consumer [planned]
-├── config/              # AWS and Spring configuration [planned]
+│   └── dto/             # Request/response DTOs (PaymentRequest, PaymentResponse, PaymentCreatedEvent)
+├── messaging/           # SqsPublisher, PaymentEventConsumer
+├── config/              # SqsConfig — SqsTemplate bean configuration
 └── exception/           # Custom exceptions and global handler
+
+src/main/resources/
+├── application.properties          # Shared config — app name, JPA, AWS region, SQS queue URL
+├── application-local.properties    # Local dev — H2 in-memory database
+└── application-prod.properties     # Production — RDS PostgreSQL via environment variables
 ```
 
 ---
@@ -123,19 +137,16 @@ src/main/java/com/bridgepay/payment_processor/
 
 - Java 21
 - Maven
+- Docker (optional, for containerized local run)
 
-### Start the application
-
+### Start the application (local profile)
 ```bash
 ./mvnw spring-boot:run
 ```
 
-The app starts on `http://localhost:8080`.
+The app starts on `http://localhost:8080` using H2 in-memory database.
 
 ### H2 Console
-
-An in-memory H2 database is used for local development. Access the console at:
-
 ```
 http://localhost:8080/h2-console
 ```
@@ -146,10 +157,47 @@ http://localhost:8080/h2-console
 | Username | `sa` |
 | Password | *(empty)* |
 
+### Start with production profile
+
+Set the following environment variables, then run:
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=prod
+```
+
+| Variable | Description |
+|---|---|
+| `DB_URL` | RDS PostgreSQL JDBC URL |
+| `DB_USERNAME` | Database username |
+| `DB_PASSWORD` | Database password |
+| `AWS_ACCESS_KEY_ID` | AWS credentials |
+| `AWS_SECRET_ACCESS_KEY` | AWS credentials |
+| `SQS_QUEUE_URL` | Full SQS queue URL |
+
+---
+
+## Docker
+
+### Build the image
+```bash
+docker build -t bridgepay-payment-processor .
+```
+
+### Run the container
+```bash
+docker run -p 8080:8080 \
+  -e SPRING_PROFILES_ACTIVE=prod \
+  -e DB_URL=<your-rds-url> \
+  -e DB_USERNAME=<username> \
+  -e DB_PASSWORD=<password> \
+  -e AWS_ACCESS_KEY_ID=<key> \
+  -e AWS_SECRET_ACCESS_KEY=<secret> \
+  -e SQS_QUEUE_URL=<queue-url> \
+  bridgepay-payment-processor
+```
+
 ---
 
 ## Running Tests
-
 ```bash
 ./mvnw test
 ```
@@ -161,31 +209,35 @@ http://localhost:8080/h2-console
 | Service | `PaymentServiceTest` | Unit — Mockito |
 | Controller | `PaymentControllerTest` | `@WebMvcTest` |
 | Repository | `PaymentRepositoryTest` | `@DataJpaTest` / H2 |
+| Messaging | `SqsPublisherTest` | Unit — Mockito |
+| Messaging | `PaymentEventConsumerTest` | Unit — Mockito |
 
-All 15 tests passing.
+All 19 tests passing.
 
 ---
 
 ## Roadmap
 
-### In Progress
-- [ ] AWS SQS integration — publish `PaymentCreatedEvent` on payment creation
-- [ ] `PaymentEventConsumer` — async SQS consumer to update status to `PROCESSING`
-- [ ] AWS SQS configuration class with `SqsClient` bean
+### Completed
+- [x] Full layered REST API — Controller, Service, Repository
+- [x] JPA entity with UUID primary key, Bean Validation, custom exception handling
+- [x] Spring profile configuration — local (H2) and prod (RDS PostgreSQL)
+- [x] AWS RDS PostgreSQL — production database
+- [x] AWS SQS integration — event publishing and async consumption
+- [x] Full PENDING → PROCESSING lifecycle verified end-to-end
+- [x] Dockerized application
+- [x] Deployed to AWS ECS Fargate with Application Load Balancer
 
 ### Planned
-- [ ] Swap H2 for PostgreSQL with Spring profiles (`local` vs `prod`)
-- [ ] AWS RDS PostgreSQL instance
-- [ ] Dockerize the application
-- [ ] Deploy to AWS ECS (Fargate)
 - [ ] GitHub Actions CI/CD pipeline — build, test, deploy on push to `main`
 - [ ] Architecture diagram
-- [ ] Postman collection for API testing
+- [x] Postman collection for API testing
 - [ ] Integration tests with Testcontainers (PostgreSQL + LocalStack for SQS)
+- [ ] Dead letter queue (DLQ) for failed SQS messages
 
 ---
 
-## Related Projects
+## Related Projects - coming soon
 
 | Repo | Stack | Description |
 |---|---|---|
