@@ -1,6 +1,7 @@
 package com.bridgepay.payment_processor.service;
 
 import com.bridgepay.payment_processor.exception.PaymentNotFoundException;
+import com.bridgepay.payment_processor.messaging.SqsPublisher;
 import com.bridgepay.payment_processor.model.dto.PaymentRequest;
 import com.bridgepay.payment_processor.model.dto.PaymentResponse;
 import com.bridgepay.payment_processor.model.entity.Payment;
@@ -11,7 +12,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,6 +21,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -28,6 +30,8 @@ class PaymentServiceTest {
 
     @Mock
     private PaymentRepository paymentRepository;
+    @Mock
+    SqsPublisher sqsPublisher;
 
     @InjectMocks
     private PaymentService paymentService;
@@ -70,6 +74,32 @@ class PaymentServiceTest {
         assertThat(response.getSenderId()).isEqualTo("sender-1");
         assertThat(response.getRecipientId()).isEqualTo("recipient-1");
         assertThat(response.getDescription()).isEqualTo("Test payment");
+    }
+
+    @Test
+    void createPayment_shouldPublishSqsEvent() {
+        PaymentRequest request = PaymentRequest.builder()
+                .amount(new BigDecimal("100.00"))
+                .currency("USD")
+                .senderId("sender-1")
+                .recipientId("recipient-1")
+                .description("Test payment")
+                .build();
+
+        UUID generatedId = UUID.randomUUID();
+        Payment savedPayment = buildPayment(generatedId, PaymentStatus.PENDING);
+
+        when(paymentRepository.save(any(Payment.class))).thenReturn(savedPayment);
+
+        paymentService.createPayment(request);
+
+        verify(sqsPublisher).publishPaymentCreatedEvent(argThat(event ->
+                event.paymentId().equals(generatedId.toString()) &&
+                event.amount().compareTo(new BigDecimal("100.00")) == 0 &&
+                event.currency().equals("USD") &&
+                event.senderId().equals("sender-1") &&
+                event.recipientId().equals("recipient-1")
+        ));
     }
 
     @Test

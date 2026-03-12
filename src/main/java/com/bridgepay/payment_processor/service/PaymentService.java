@@ -1,5 +1,7 @@
 package com.bridgepay.payment_processor.service;
 
+import com.bridgepay.payment_processor.messaging.SqsPublisher;
+import com.bridgepay.payment_processor.model.dto.PaymentCreatedEvent;
 import com.bridgepay.payment_processor.model.dto.PaymentRequest;
 import com.bridgepay.payment_processor.model.dto.PaymentResponse;
 import com.bridgepay.payment_processor.model.entity.Payment;
@@ -17,6 +19,7 @@ import java.util.UUID;
 public class PaymentService {
 
     private final PaymentRepository paymentRepository;
+    private final SqsPublisher sqsPublisher;
 
     public PaymentResponse createPayment(PaymentRequest request) {
         Payment payment = Payment.builder()
@@ -28,7 +31,17 @@ public class PaymentService {
                 .status(PaymentStatus.PENDING)
                 .build();
 
-        return mapToResponse(paymentRepository.save(payment));
+        Payment saved = paymentRepository.save(payment);
+
+        sqsPublisher.publishPaymentCreatedEvent(new PaymentCreatedEvent(
+                saved.getId().toString(),
+                saved.getAmount(),
+                saved.getCurrency(),
+                saved.getSenderId(),
+                saved.getRecipientId()
+        ));
+
+        return mapToResponse(saved);
     }
 
     public PaymentResponse getPayment(UUID id) {
