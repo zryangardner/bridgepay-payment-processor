@@ -99,6 +99,18 @@ curl -X POST http://localhost:8080/api/v1/payments \
 }
 ```
 
+### Error Responses
+
+Invalid input returns a `400 Bad Request` with a descriptive message. Examples:
+
+| Scenario | Response |
+|---|---|
+| Invalid UUID on `/{id}` | `400` — expected a valid UUID |
+| Invalid status on `/status/{status}` | `400` — expected one of [PENDING, PROCESSING, COMPLETED, FAILED] |
+| Whitespace-only `senderId` | `400` — senderId must not be blank |
+
+---
+
 ### Payment Status Values
 
 | Status | Description |
@@ -121,7 +133,7 @@ src/main/java/com/bridgepay/payment_processor/
 │   └── dto/             # Request/response DTOs (PaymentRequest, PaymentResponse, PaymentCreatedEvent)
 ├── messaging/           # SqsPublisher, PaymentEventConsumer
 ├── config/              # SqsConfig — SqsTemplate bean configuration
-└── exception/           # Custom exceptions and global handler
+└── exception/           # GlobalExceptionHandler, custom exceptions
 
 src/main/resources/
 ├── application.properties          # Shared config — app name, JPA, AWS region, SQS queue URL
@@ -204,15 +216,15 @@ docker run -p 8080:8080 \
 
 ### Test Coverage
 
-| Layer | Class | Type |
-|---|---|---|
-| Service | `PaymentServiceTest` | Unit — Mockito |
-| Controller | `PaymentControllerTest` | `@WebMvcTest` |
-| Repository | `PaymentRepositoryTest` | `@DataJpaTest` / H2 |
-| Messaging | `SqsPublisherTest` | Unit — Mockito |
-| Messaging | `PaymentEventConsumerTest` | Unit — Mockito |
+| Layer | Class | Tests | Type |
+|---|---|---|---|
+| Service | `PaymentServiceTest` | Core CRUD + business logic | Unit — Mockito |
+| Controller | `PaymentControllerTest` | Happy path + input validation (invalid UUID, invalid enum, blank senderId) | `@WebMvcTest` |
+| Repository | `PaymentRepositoryTest` | Persistence queries | `@DataJpaTest` / H2 |
+| Messaging | `SqsPublisherTest` | Event publishing | Unit — Mockito |
+| Messaging | `PaymentEventConsumerTest` | Async status updates | Unit — Mockito |
 
-All 19 tests passing.
+All 27 tests passing.
 
 ---
 
@@ -221,28 +233,30 @@ All 19 tests passing.
 ### Completed
 - [x] Full layered REST API — Controller, Service, Repository
 - [x] JPA entity with UUID primary key, Bean Validation, custom exception handling
+- [x] Input validation — `@Validated` on controller, `@NotBlank` on path variables, type-aware error responses for invalid UUIDs and enums
 - [x] Spring profile configuration — local (H2) and prod (RDS PostgreSQL)
 - [x] AWS RDS PostgreSQL — production database
 - [x] AWS SQS integration — event publishing and async consumption
 - [x] Full PENDING → PROCESSING lifecycle verified end-to-end
 - [x] Dockerized application
 - [x] Deployed to AWS ECS Fargate with Application Load Balancer
+- [x] Postman collection for API testing
 
 ### Planned
 - [ ] GitHub Actions CI/CD pipeline — build, test, deploy on push to `main`
 - [ ] Architecture diagram
-- [x] Postman collection for API testing
 - [ ] Integration tests with Testcontainers (PostgreSQL + LocalStack for SQS)
 - [ ] Dead letter queue (DLQ) for failed SQS messages
 
 ---
 
-## Related Projects - coming soon
+## Related Projects
 
 | Repo | Stack | Description |
 |---|---|---|
 | `bridgepay-notification-service` | Kotlin / Spring Boot | Lifecycle notification dispatcher consuming SQS events *(coming soon)* |
 | `bridgepay-insights-api` | Python / FastAPI | AI-powered payment insights API *(coming soon)* |
+| `bridgepay-dashboard` | React | Payment status dashboard and registration UI *(coming soon)* |
 
 ---
 

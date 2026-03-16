@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -110,6 +111,64 @@ class PaymentControllerTest {
         mockMvc.perform(get("/api/v1/payments/{id}", id))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value("Payment not found with id: " + id));
+    }
+
+    @Test
+    void getPayment_shouldReturn400_whenInvalidUUID() throws Exception {
+        mockMvc.perform(get("/api/v1/payments/not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Invalid value 'not-a-uuid' for parameter 'id': expected a valid UUID"));
+    }
+
+    @Test
+    void getPaymentsByStatus_shouldReturn200_whenValidStatus() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(paymentService.getPaymentsByStatus(PaymentStatus.PENDING)).thenReturn(List.of(buildResponse(id, PaymentStatus.PENDING)));
+
+        mockMvc.perform(get("/api/v1/payments/status/PENDING"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].status").value("PENDING"));
+    }
+
+    @Test
+    void getPaymentsByStatus_shouldReturn400_whenInvalidStatus() throws Exception {
+        mockMvc.perform(get("/api/v1/payments/status/INVALID"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Invalid value 'INVALID' for parameter 'status': expected one of [PENDING, PROCESSING, COMPLETED, FAILED]"));
+    }
+
+    @Test
+    void getPaymentsBySender_shouldReturn200_whenValidSenderId() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(paymentService.getPaymentsBySender("sender-1")).thenReturn(List.of(buildResponse(id, PaymentStatus.PENDING)));
+
+        mockMvc.perform(get("/api/v1/payments/sender/sender-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].senderId").value("sender-1"));
+    }
+
+    @Test
+    void getPaymentsBySender_shouldReturn400_whenBlankSenderId() throws Exception {
+        mockMvc.perform(get("/api/v1/payments/sender/   "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Invalid value for 'senderId': must not be blank"));
+    }
+
+    @Test
+    void updatePaymentStatus_shouldReturn400_whenInvalidUUID() throws Exception {
+        mockMvc.perform(patch("/api/v1/payments/not-a-uuid/status")
+                        .param("status", "COMPLETED"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Invalid value 'not-a-uuid' for parameter 'id': expected a valid UUID"));
+    }
+
+    @Test
+    void updatePaymentStatus_shouldReturn400_whenInvalidStatus() throws Exception {
+        UUID id = UUID.randomUUID();
+        mockMvc.perform(patch("/api/v1/payments/{id}/status", id)
+                        .param("status", "INVALID"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Invalid value 'INVALID' for parameter 'status': expected one of [PENDING, PROCESSING, COMPLETED, FAILED]"));
     }
 
     @Test
