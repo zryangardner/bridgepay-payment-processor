@@ -28,6 +28,7 @@ public class PaymentService {
                 .senderId(request.getSenderId())
                 .recipientId(request.getRecipientId())
                 .description(request.getDescription())
+                .isPrivate(request.isPrivate())
                 .status(PaymentStatus.PENDING)
                 .build();
 
@@ -56,6 +57,12 @@ public class PaymentService {
                 .toList();
     }
 
+    public List<PaymentResponse> getPublicPayments() {
+        return paymentRepository.findByIsPrivateFalse().stream()
+                .map(this::mapToResponse)
+                .toList();
+    }
+
     public List<PaymentResponse> getPaymentsBySender(String senderId) {
         return paymentRepository.findBySenderId(senderId).stream()
                 .map(this::mapToResponse)
@@ -78,6 +85,7 @@ public class PaymentService {
                 .senderId(payment.getSenderId())
                 .recipientId(payment.getRecipientId())
                 .description(payment.getDescription())
+                .isPrivate(payment.isPrivate())
                 .createdAt(payment.getCreatedAt())
                 .updatedAt(payment.getUpdatedAt())
                 .build();

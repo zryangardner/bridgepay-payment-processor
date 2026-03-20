@@ -23,6 +23,7 @@ public class PaymentResponse {
     private String senderId;
     private String recipientId;
     private String description;
+    private boolean isPrivate;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

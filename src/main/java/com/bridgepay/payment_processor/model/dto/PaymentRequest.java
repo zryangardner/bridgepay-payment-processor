@@ -30,4 +30,7 @@ public class PaymentRequest {
     private String recipientId;
 
     private String description;
+
+    @Builder.Default
+    private boolean isPrivate = false;
 }

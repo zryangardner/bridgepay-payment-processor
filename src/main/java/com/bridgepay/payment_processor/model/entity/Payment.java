@@ -41,6 +41,10 @@ public class Payment {
 
     private String description;
 
+    @Builder.Default
+    @Column(name = "is_private", nullable = false)
+    private boolean isPrivate = false;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

@@ -22,8 +22,6 @@ import org.springframework.security.test.context.support.WithMockUser;
 
 import com.bridgepay.payment_processor.security.SecurityConfig;
 import org.springframework.context.annotation.Import;
-import org.springframework.security.test.context.support.WithMockUser;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -45,6 +43,10 @@ class PaymentControllerTest {
     private PaymentService paymentService;
 
     private PaymentResponse buildResponse(UUID id, PaymentStatus status) {
+        return buildResponse(id, status, false);
+    }
+
+    private PaymentResponse buildResponse(UUID id, PaymentStatus status, boolean isPrivate) {
         return PaymentResponse.builder()
                 .id(id)
                 .amount(new BigDecimal("250.00"))
@@ -53,6 +55,7 @@ class PaymentControllerTest {
                 .senderId("sender-1")
                 .recipientId("recipient-1")
                 .description("Test payment")
+                .isPrivate(isPrivate)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -160,6 +163,21 @@ class PaymentControllerTest {
         mockMvc.perform(get("/api/v1/payments/sender/   "))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Invalid value for 'senderId': must not be blank"));
+    }
+
+    @Test
+    void getPublicPayments_shouldReturn200_withOnlyPublicPayments() throws Exception {
+        UUID id1 = UUID.randomUUID();
+        UUID id2 = UUID.randomUUID();
+        when(paymentService.getPublicPayments()).thenReturn(List.of(
+                buildResponse(id1, PaymentStatus.PENDING, false),
+                buildResponse(id2, PaymentStatus.COMPLETED, false)
+        ));
+
+        mockMvc.perform(get("/api/v1/payments/public"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(2));
     }
 
     @Test

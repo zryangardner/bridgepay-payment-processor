@@ -23,6 +23,10 @@ class PaymentRepositoryTest {
     private TestEntityManager entityManager;
 
     private Payment buildPayment(String senderId, String recipientId, PaymentStatus status) {
+        return buildPayment(senderId, recipientId, status, false);
+    }
+
+    private Payment buildPayment(String senderId, String recipientId, PaymentStatus status, boolean isPrivate) {
         return Payment.builder()
                 .amount(new BigDecimal("75.00"))
                 .currency("USD")
@@ -30,6 +34,7 @@ class PaymentRepositoryTest {
                 .senderId(senderId)
                 .recipientId(recipientId)
                 .description("Test payment")
+                .isPrivate(isPrivate)
                 .build();
     }
 
@@ -78,6 +83,18 @@ class PaymentRepositoryTest {
         assertThat(alicePayments).allMatch(p -> p.getSenderId().equals("alice"));
         assertThat(bobPayments).hasSize(1);
         assertThat(bobPayments.getFirst().getSenderId()).isEqualTo("bob");
+    }
+
+    @Test
+    void findByIsPrivateFalse_shouldReturnOnlyPublicPayments() {
+        entityManager.persistAndFlush(buildPayment("sender-1", "recipient-1", PaymentStatus.PENDING, false));
+        entityManager.persistAndFlush(buildPayment("sender-2", "recipient-2", PaymentStatus.PENDING, false));
+        entityManager.persistAndFlush(buildPayment("sender-3", "recipient-3", PaymentStatus.PENDING, true));
+
+        List<Payment> publicPayments = paymentRepository.findByIsPrivateFalse();
+
+        assertThat(publicPayments).hasSize(2);
+        assertThat(publicPayments).allMatch(p -> !p.isPrivate());
     }
 
     @Test

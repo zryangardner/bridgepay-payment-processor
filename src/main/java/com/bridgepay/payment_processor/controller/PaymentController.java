@@ -33,6 +33,11 @@ public class PaymentController {
         return ResponseEntity.ok(paymentService.getPayment(id));
     }
 
+    @GetMapping("/public")
+    public ResponseEntity<List<PaymentResponse>> getPublicPayments() {
+        return ResponseEntity.ok(paymentService.getPublicPayments());
+    }
+
     @GetMapping("/status/{status}")
     public ResponseEntity<List<PaymentResponse>> getPaymentsByStatus(@PathVariable PaymentStatus status) {
         return ResponseEntity.ok(paymentService.getPaymentsByStatus(status));

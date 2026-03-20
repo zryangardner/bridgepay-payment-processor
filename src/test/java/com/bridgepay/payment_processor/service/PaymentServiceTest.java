@@ -37,6 +37,10 @@ class PaymentServiceTest {
     private PaymentService paymentService;
 
     private Payment buildPayment(UUID id, PaymentStatus status) {
+        return buildPayment(id, status, false);
+    }
+
+    private Payment buildPayment(UUID id, PaymentStatus status, boolean isPrivate) {
         return Payment.builder()
                 .id(id)
                 .amount(new BigDecimal("100.00"))
@@ -45,6 +49,7 @@ class PaymentServiceTest {
                 .senderId("sender-1")
                 .recipientId("recipient-1")
                 .description("Test payment")
+                .isPrivate(isPrivate)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -143,6 +148,38 @@ class PaymentServiceTest {
 
         assertThat(response.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
         assertThat(response.getId()).isEqualTo(id);
+    }
+
+    @Test
+    void createPayment_shouldMapIsPrivateFromRequest() {
+        PaymentRequest request = PaymentRequest.builder()
+                .amount(new BigDecimal("100.00"))
+                .senderId("sender-1")
+                .recipientId("recipient-1")
+                .isPrivate(true)
+                .build();
+
+        UUID generatedId = UUID.randomUUID();
+        Payment savedPayment = buildPayment(generatedId, PaymentStatus.PENDING, true);
+
+        when(paymentRepository.save(any(Payment.class))).thenReturn(savedPayment);
+
+        PaymentResponse response = paymentService.createPayment(request);
+
+        assertThat(response.isPrivate()).isTrue();
+    }
+
+    @Test
+    void getPublicPayments_shouldReturnOnlyNonPrivatePayments() {
+        Payment pub1 = buildPayment(UUID.randomUUID(), PaymentStatus.PENDING, false);
+        Payment pub2 = buildPayment(UUID.randomUUID(), PaymentStatus.COMPLETED, false);
+
+        when(paymentRepository.findByIsPrivateFalse()).thenReturn(List.of(pub1, pub2));
+
+        List<PaymentResponse> responses = paymentService.getPublicPayments();
+
+        assertThat(responses).hasSize(2);
+        assertThat(responses).allMatch(r -> !r.isPrivate());
     }
 
     @Test
