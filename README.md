@@ -1,8 +1,8 @@
 # BridgePay Payment Processor
 
-> Event-driven payment processing platform built on Java Spring Boot and AWS.
+> Event-driven payment processing platform built on Java 21, Spring Boot, and AWS.
 
-A portfolio project simulating a real-world payment lifecycle API — accepting transactions, validating them, publishing events to AWS SQS, and processing them asynchronously. Built to demonstrate backend engineering skills in Java, Spring Boot, event-driven architecture, and AWS cloud infrastructure.
+A portfolio project simulating a real-world payment lifecycle API — accepting authenticated transactions, validating them, publishing events to AWS SQS, and processing them asynchronously. Part of the BridgePay suite, a polyglot microservices platform demonstrating backend engineering depth across Java, Kotlin, TypeScript, and React.
 
 ---
 
@@ -16,35 +16,43 @@ A portfolio project simulating a real-world payment lifecycle API — accepting 
 | Database (local) | H2 (in-memory) |
 | Database (production) | PostgreSQL — AWS RDS |
 | Messaging | AWS SQS |
+| Auth | JWT — validated against tokens issued by bridgepay-registration-service |
 | Cloud | AWS — ECS Fargate, RDS, SQS, ECR, ALB |
 | Containerization | Docker |
 | Build | Maven |
-| Testing | JUnit 5, Mockito, AssertJ, Testcontainers |
+| Testing | JUnit 5, Mockito, AssertJ |
 
 ---
 
 ## Architecture
+
 ```
-HTTP Request
+Authenticated HTTP Request
+     │  (Bearer JWT — issued by bridgepay-registration-service)
+     ▼
+JWT Auth Filter             (Validates token, extracts userId)
      │
      ▼
-PaymentController          (REST layer — /api/v1/payments)
+PaymentController           (REST layer — /api/v1/payments)
      │
      ▼
-PaymentService             (Business logic — validation, mapping)
+PaymentService              (Business logic — validation, mapping)
      │
-     ├──▶ PaymentRepository    (Spring Data JPA — persistence)
+     ├──▶ PaymentRepository     (Spring Data JPA — persistence)
      │
-     └──▶ SqsPublisher         (Messaging — event publishing)
+     └──▶ SqsPublisher          (Messaging — event publishing)
                │
                ▼
           AWS SQS Queue
                │
                ▼
-          PaymentEventConsumer  (Async processing)
+          PaymentEventConsumer   (Async processing)
                │
                ▼
-          PaymentRepository     (Status update → PROCESSING)
+          PaymentRepository      (Status update → PROCESSING)
+               │
+               ▼
+          bridgepay-notification-service  (Consumes same SQS events → notifications)
 ```
 
 ---
@@ -59,9 +67,13 @@ PaymentService             (Business logic — validation, mapping)
 | Messaging | Amazon SQS | Async payment event queue |
 | Load Balancer | Application Load Balancer | Public-facing HTTP endpoint |
 
+> All infrastructure provisioned and managed via Terraform — see [bridgepay-terraform](https://github.com/zryangardner/bridgepay-terraform).
+
 ---
 
 ## API Endpoints
+
+All endpoints require a valid JWT Bearer token issued by `bridgepay-registration-service`.
 
 | Method | Endpoint | Description |
 |---|---|---|
@@ -75,6 +87,7 @@ PaymentService             (Business logic — validation, mapping)
 ```bash
 curl -X POST http://localhost:8080/api/v1/payments \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <access_token>" \
   -d '{
     "amount": 100.00,
     "currency": "USD",
@@ -94,22 +107,10 @@ curl -X POST http://localhost:8080/api/v1/payments \
   "senderId": "user-001",
   "recipientId": "user-002",
   "description": "Payment for services",
-  "createdAt": "2026-03-12T15:41:43.974837",
-  "updatedAt": "2026-03-12T15:41:43.974837"
+  "createdAt": "2026-03-20T15:41:43.974837",
+  "updatedAt": "2026-03-20T15:41:43.974837"
 }
 ```
-
-### Error Responses
-
-Invalid input returns a `400 Bad Request` with a descriptive message. Examples:
-
-| Scenario | Response |
-|---|---|
-| Invalid UUID on `/{id}` | `400` — expected a valid UUID |
-| Invalid status on `/status/{status}` | `400` — expected one of [PENDING, PROCESSING, COMPLETED, FAILED] |
-| Whitespace-only `senderId` | `400` — senderId must not be blank |
-
----
 
 ### Payment Status Values
 
@@ -123,6 +124,7 @@ Invalid input returns a `400 Bad Request` with a descriptive message. Examples:
 ---
 
 ## Project Structure
+
 ```
 src/main/java/com/bridgepay/payment_processor/
 ├── controller/          # REST endpoints
@@ -133,7 +135,8 @@ src/main/java/com/bridgepay/payment_processor/
 │   └── dto/             # Request/response DTOs (PaymentRequest, PaymentResponse, PaymentCreatedEvent)
 ├── messaging/           # SqsPublisher, PaymentEventConsumer
 ├── config/              # SqsConfig — SqsTemplate bean configuration
-└── exception/           # GlobalExceptionHandler, custom exceptions
+├── security/            # JWT filter — validates Bearer tokens from registration service
+└── exception/           # Custom exceptions and global handler
 
 src/main/resources/
 ├── application.properties          # Shared config — app name, JPA, AWS region, SQS queue URL
@@ -150,6 +153,7 @@ src/main/resources/
 - Java 21
 - Maven
 - Docker (optional, for containerized local run)
+- `bridgepay-registration-service` running locally on port 3000
 
 ### Start the application (local profile)
 ```bash
@@ -184,6 +188,7 @@ Set the following environment variables, then run:
 | `AWS_ACCESS_KEY_ID` | AWS credentials |
 | `AWS_SECRET_ACCESS_KEY` | AWS credentials |
 | `SQS_QUEUE_URL` | Full SQS queue URL |
+| `JWT_ACCESS_SECRET` | Must match secret used by bridgepay-registration-service |
 
 ---
 
@@ -204,27 +209,29 @@ docker run -p 8080:8080 \
   -e AWS_ACCESS_KEY_ID=<key> \
   -e AWS_SECRET_ACCESS_KEY=<secret> \
   -e SQS_QUEUE_URL=<queue-url> \
+  -e JWT_ACCESS_SECRET=<shared-secret> \
   bridgepay-payment-processor
 ```
 
 ---
 
 ## Running Tests
+
 ```bash
 ./mvnw test
 ```
 
 ### Test Coverage
 
-| Layer | Class | Tests | Type |
-|---|---|---|---|
-| Service | `PaymentServiceTest` | Core CRUD + business logic | Unit — Mockito |
-| Controller | `PaymentControllerTest` | Happy path + input validation (invalid UUID, invalid enum, blank senderId) | `@WebMvcTest` |
-| Repository | `PaymentRepositoryTest` | Persistence queries | `@DataJpaTest` / H2 |
-| Messaging | `SqsPublisherTest` | Event publishing | Unit — Mockito |
-| Messaging | `PaymentEventConsumerTest` | Async status updates | Unit — Mockito |
+| Layer | Class | Type |
+|---|---|---|
+| Service | `PaymentServiceTest` | Unit — Mockito |
+| Controller | `PaymentControllerTest` | `@WebMvcTest` |
+| Repository | `PaymentRepositoryTest` | `@DataJpaTest` / H2 |
+| Messaging | `SqsPublisherTest` | Unit — Mockito |
+| Messaging | `PaymentEventConsumerTest` | Unit — Mockito |
 
-All 27 tests passing.
+27 tests passing.
 
 ---
 
@@ -233,20 +240,18 @@ All 27 tests passing.
 ### Completed
 - [x] Full layered REST API — Controller, Service, Repository
 - [x] JPA entity with UUID primary key, Bean Validation, custom exception handling
-- [x] Input validation — `@Validated` on controller, `@NotBlank` on path variables, type-aware error responses for invalid UUIDs and enums
 - [x] Spring profile configuration — local (H2) and prod (RDS PostgreSQL)
-- [x] AWS RDS PostgreSQL — production database
 - [x] AWS SQS integration — event publishing and async consumption
 - [x] Full PENDING → PROCESSING lifecycle verified end-to-end
-- [x] Dockerized application
-- [x] Deployed to AWS ECS Fargate with Application Load Balancer
-- [x] Postman collection for API testing
+- [x] Dockerized application with multi-stage build
+- [x] GitHub Actions CI/CD pipeline — build, test, push to ECR, deploy to ECS
 
 ### Planned
-- [ ] GitHub Actions CI/CD pipeline — build, test, deploy on push to `main`
-- [ ] Architecture diagram
-- [ ] Integration tests with Testcontainers (PostgreSQL + LocalStack for SQS)
+- [ ] JWT auth filter — validate Bearer tokens from bridgepay-registration-service
 - [ ] Dead letter queue (DLQ) for failed SQS messages
+- [ ] Integration tests with Testcontainers (PostgreSQL + LocalStack for SQS)
+- [ ] Redeploy via Terraform alongside full BridgePay suite
+- [ ] Architecture diagram
 
 ---
 
@@ -254,9 +259,10 @@ All 27 tests passing.
 
 | Repo | Stack | Description |
 |---|---|---|
-| `bridgepay-notification-service` | Kotlin / Spring Boot | Lifecycle notification dispatcher consuming SQS events *(coming soon)* |
-| `bridgepay-insights-api` | Python / FastAPI | AI-powered payment insights API *(coming soon)* |
-| `bridgepay-dashboard` | React | Payment status dashboard and registration UI *(coming soon)* |
+| `bridgepay-registration-service` | TypeScript / Node.js / Express | User registration, login, JWT auth |
+| `bridgepay-notification-service` | Kotlin / Spring Boot / AWS SQS | Lifecycle notification dispatcher |
+| `bridgepay-dashboard` | React | Frontend — payment status, transaction history, onboarding |
+| `bridgepay-terraform` | Terraform | AWS infrastructure — provisions all services |
 
 ---
 
