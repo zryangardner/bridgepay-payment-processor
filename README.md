@@ -1,3 +1,6 @@
+> ⚠️ **This repository has been renamed and archived.**
+> The active repository is [bridgepay-payment-service](https://github.com/zryangardner/bridgepay-payment-service).
+
 # BridgePay Payment Processor
 
 > Event-driven payment processing platform built on Java 21, Spring Boot, and AWS.
